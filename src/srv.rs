@@ -18,7 +18,10 @@ use {
     tokio::{
         io::{AsyncRead, AsyncWrite},
         net::{TcpListener, UnixListener},
-        sync::{Mutex, RwLock},
+        sync::{
+            mpsc::{channel, Receiver},
+            Mutex, RwLock,
+        },
     },
     tokio_stream::StreamExt,
     tokio_util::codec::length_delimited::LengthDelimitedCodec,
@@ -388,15 +391,29 @@ where
     Ok(())
 }
 
-async fn srv_async_tcp<Fs>(filesystem: Fs, addr: &str) -> Result<()>
+async fn srv_async_tcp<Fs>(
+    filesystem: Fs,
+    addr: &str,
+    mut shutdown_signal: Receiver<()>,
+) -> Result<()>
 where
     Fs: 'static + Filesystem + Send + Sync + Clone,
 {
     let listener = TcpListener::bind(addr).await?;
 
     loop {
-        let (stream, peer) = listener.accept().await?;
-        info!("accepted: {:?}", peer);
+        let res = tokio::select! {
+            v = listener.accept() => Some(v),
+            _ = shutdown_signal.recv() => None,
+        };
+
+        let (stream, peer) = match res {
+            Some(Ok(res)) => res,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Ok(()),
+        };
+
+        debug!("accepted: {:?}", peer);
 
         let fs = filesystem.clone();
         tokio::spawn(async move {
@@ -409,15 +426,29 @@ where
     }
 }
 
-pub async fn srv_async_unix<Fs>(filesystem: Fs, addr: &str) -> Result<()>
+pub async fn srv_async_unix<Fs>(
+    filesystem: Fs,
+    addr: &str,
+    mut shutdown_signal: Receiver<()>,
+) -> Result<()>
 where
     Fs: 'static + Filesystem + Send + Sync + Clone,
 {
     let listener = UnixListener::bind(addr)?;
 
     loop {
-        let (stream, peer) = listener.accept().await?;
-        info!("accepted: {:?}", peer);
+        let res = tokio::select! {
+            v = listener.accept() => Some(v),
+            _ = shutdown_signal.recv() => None,
+        };
+
+        let (stream, peer) = match res {
+            Some(Ok(res)) => res,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Ok(()),
+        };
+
+        debug!("accepted: {:?}", peer);
 
         let fs = filesystem.clone();
         tokio::spawn(async move {
@@ -437,9 +468,29 @@ where
     let (proto, listen_addr) = utils::parse_proto(addr)
         .ok_or_else(|| io_err!(InvalidInput, "Invalid protocol or address"))?;
 
+    let (_, shutdown_signal) = channel(1);
+
     match proto {
-        "tcp" => srv_async_tcp(filesystem, &listen_addr).await,
-        "unix" => srv_async_unix(filesystem, &listen_addr).await,
+        "tcp" => srv_async_tcp(filesystem, &listen_addr, shutdown_signal).await,
+        "unix" => srv_async_unix(filesystem, &listen_addr, shutdown_signal).await,
+        _ => Err(From::from(io_err!(InvalidInput, "Protocol not supported"))),
+    }
+}
+
+pub async fn srv_async_with_shutdown<Fs>(
+    filesystem: Fs,
+    addr: &str,
+    shutdown_signal: Receiver<()>,
+) -> Result<()>
+where
+    Fs: 'static + Filesystem + Send + Sync + Clone,
+{
+    let (proto, listen_addr) = utils::parse_proto(addr)
+        .ok_or_else(|| io_err!(InvalidInput, "Invalid protocol or address"))?;
+
+    match proto {
+        "tcp" => srv_async_tcp(filesystem, &listen_addr, shutdown_signal).await,
+        "unix" => srv_async_unix(filesystem, &listen_addr, shutdown_signal).await,
         _ => Err(From::from(io_err!(InvalidInput, "Protocol not supported"))),
     }
 }
