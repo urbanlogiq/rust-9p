@@ -353,7 +353,7 @@ where
         let bytes = bytes?;
 
         let msg = serialize::read_msg(&mut bytes.reader())?;
-        info!("\t← {:?}", msg);
+        debug!("\t← {:?}", msg);
 
         let fids = fsfids.clone();
         let fs = filesystem.clone();
@@ -361,7 +361,7 @@ where
 
         tokio::spawn(async move {
             let response_fcall = dispatch_once(&msg, fs, fids).await.unwrap_or_else(|e| {
-                error!("{:?}: Error: \"{}\": {:?}", MsgType::from(&msg.body), e, e);
+                debug!("{:?}: Error: \"{}\": {:?}", MsgType::from(&msg.body), e, e);
                 Fcall::Rlerror {
                     ecode: e.errno() as u32,
                 }
@@ -383,7 +383,7 @@ where
                         .await
                         .unwrap();
                 }
-                info!("\t→ {:?}", response);
+                debug!("\t→ {:?}", response);
             }
         });
     }
@@ -420,7 +420,7 @@ where
             let (readhalf, writehalf) = stream.into_split();
             let res = dispatch(fs, readhalf, writehalf).await;
             if let Err(e) = res {
-                error!("Error: {}: {:?}", e, e);
+                debug!("Error: {}: {:?}", e, e);
             }
         });
     }
@@ -455,7 +455,7 @@ where
             let (readhalf, writehalf) = tokio::io::split(stream);
             let res = dispatch(fs, readhalf, writehalf).await;
             if let Err(e) = res {
-                error!("Error: {:?}", e);
+                debug!("Error: {:?}", e);
             }
         });
     }
