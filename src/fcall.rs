@@ -490,7 +490,7 @@ impl Default for DirEntryData {
 /// # Protocol
 /// 9P2000/9P2000.L
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Data(pub Vec<u8>);
+pub struct Data(pub bytes::Bytes);
 
 /// Similar to Linux `struct flock`
 ///

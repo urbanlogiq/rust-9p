@@ -13,7 +13,7 @@ use {
     },
     tokio::{
         fs,
-        io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+        io::{AsyncSeekExt, AsyncWriteExt},
         sync::{Mutex, RwLock},
     },
     tokio_stream::{wrappers::ReadDirStream, StreamExt},
@@ -37,10 +37,15 @@ use crate::utils::*;
 // we are seeing with a file system benchmark.
 const UNIX_FLAGS: u32 = (O_WRONLY | O_RDONLY | O_RDWR | O_CREAT | O_TRUNC) as u32;
 
+enum Fh {
+    Rd(memmap2::Mmap),
+    Rdwr(fs::File),
+}
+
 #[derive(Default)]
 struct UnpfsFid {
     realpath: RwLock<PathBuf>,
-    file: Mutex<Option<fs::File>>,
+    file: Mutex<Option<Fh>>,
 }
 
 #[derive(Clone)]
@@ -236,9 +241,16 @@ impl Filesystem for Unpfs {
 
             {
                 let mut file = fid.aux.file.lock().await;
-                *file = Some(fs::File::from_std(unsafe {
-                    std::fs::File::from_raw_fd(fd)
-                }));
+                let fh = fs::File::from_std(unsafe { std::fs::File::from_raw_fd(fd) });
+
+                const RDONLY: u32 = O_RDONLY as u32;
+
+                *file = Some(if (flags & RDONLY) == RDONLY {
+                    let mmap = unsafe { memmap2::MmapOptions::new().map(&fh)? };
+                    Fh::Rd(mmap)
+                } else {
+                    Fh::Rdwr(fh)
+                });
             }
         }
 
@@ -268,9 +280,9 @@ impl Filesystem for Unpfs {
         }
         {
             let mut file = fid.aux.file.lock().await;
-            *file = Some(fs::File::from_std(unsafe {
-                std::fs::File::from_raw_fd(fd)
-            }));
+            let fh = fs::File::from_std(unsafe { std::fs::File::from_raw_fd(fd) });
+
+            *file = Some(Fh::Rdwr(fh));
         }
 
         Ok(Fcall::Rlcreate { qid, iounit: 0 })
@@ -280,12 +292,29 @@ impl Filesystem for Unpfs {
         let buf = {
             let mut file = fid.aux.file.lock().await;
             let file = file.as_mut().ok_or_else(|| INVALID_FID!())?;
-            file.seek(SeekFrom::Start(offset)).await?;
+            match file {
+                Fh::Rd(mmap) => unsafe {
+                    let offset = offset as usize;
+                    let count = count as usize;
+                    let len = mmap.len();
+                    let slice = if offset > len {
+                        std::slice::from_raw_parts(mmap.as_ptr(), 0)
+                    } else {
+                        let count = if offset + count > len {
+                            len - offset
+                        } else {
+                            count
+                        };
 
-            let mut buf = create_buffer(count as usize);
-            let bytes = file.read(&mut buf[..]).await?;
-            buf.truncate(bytes);
-            buf
+                        let p = mmap.as_ptr();
+                        let start = p.add(offset as usize);
+                        std::slice::from_raw_parts(start, count)
+                    };
+
+                    bytes::Bytes::from_static(slice)
+                },
+                Fh::Rdwr(_) => return Err(INVALID_FID!().into()),
+            }
         };
 
         Ok(Fcall::Rread { data: Data(buf) })
@@ -295,8 +324,13 @@ impl Filesystem for Unpfs {
         let count = {
             let mut file = fid.aux.file.lock().await;
             let file = file.as_mut().ok_or_else(|| INVALID_FID!())?;
-            file.seek(SeekFrom::Start(offset)).await?;
-            file.write(&data.0).await? as u32
+            match file {
+                Fh::Rd(_) => return Err(INVALID_FID!().into()),
+                Fh::Rdwr(fh) => {
+                    fh.seek(SeekFrom::Start(offset)).await?;
+                    fh.write(&data.0).await? as u32
+                }
+            }
         };
 
         Ok(Fcall::Rwrite { count })
@@ -360,10 +394,11 @@ impl Filesystem for Unpfs {
     async fn rfsync(&self, fid: &Fid<Self::Fid>) -> Result<Fcall> {
         {
             let mut file = fid.aux.file.lock().await;
-            file.as_mut()
-                .ok_or_else(|| INVALID_FID!())?
-                .sync_all()
-                .await?;
+            let file = file.as_mut().ok_or_else(|| INVALID_FID!())?;
+            match file {
+                Fh::Rd(_) => return Err(INVALID_FID!())?,
+                Fh::Rdwr(fh) => fh.sync_all().await?,
+            };
         }
 
         Ok(Fcall::Rfsync)

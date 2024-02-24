@@ -1,6 +1,7 @@
 //! Serialize/deserialize 9P messages into/from binary.
 
 use crate::fcall::*;
+use bytes::Bytes;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_traits::FromPrimitive;
 use std::io::{Read, Result};
@@ -27,9 +28,9 @@ fn create_buffer(size: usize) -> Vec<u8> {
     buffer
 }
 
-fn read_exact<R: Read + ?Sized>(r: &mut R, size: usize) -> Result<Vec<u8>> {
+fn read_exact<R: Read + ?Sized>(r: &mut R, size: usize) -> Result<Bytes> {
     let mut buf = create_buffer(size);
-    r.read_exact(&mut buf[..]).and(Ok(buf))
+    r.read_exact(&mut buf[..]).and(Ok(buf.into()))
 }
 
 /// A serializing specific result to overload operators on `Result`
@@ -547,7 +548,8 @@ impl Decodable for u64 {
 impl Decodable for String {
     fn decode<R: ReadBytesExt>(r: &mut R) -> Result<Self> {
         let len: u16 = Decodable::decode(r)?;
-        String::from_utf8(read_exact(r, len as usize)?)
+        let b = read_exact(r, len as usize)?;
+        String::from_utf8(b.to_vec())
             .map_err(|_| io_err!(Other, "Invalid UTF-8 sequence"))
     }
 }
