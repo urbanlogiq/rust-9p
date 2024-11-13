@@ -1,8 +1,8 @@
 //! Serialize/deserialize 9P messages into/from binary.
 
 use crate::fcall::*;
-use bytes::Bytes;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use bytes::Bytes;
 use num_traits::FromPrimitive;
 use std::io::{Read, Result};
 use std::mem;
@@ -549,8 +549,7 @@ impl Decodable for String {
     fn decode<R: ReadBytesExt>(r: &mut R) -> Result<Self> {
         let len: u16 = Decodable::decode(r)?;
         let b = read_exact(r, len as usize)?;
-        String::from_utf8(b.to_vec())
-            .map_err(|_| io_err!(Other, "Invalid UTF-8 sequence"))
+        String::from_utf8(b.to_vec()).map_err(|_| io_err!(Other, "Invalid UTF-8 sequence"))
     }
 }
 

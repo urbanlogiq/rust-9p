@@ -143,6 +143,7 @@ pub mod p92000 {
 
 bitflags! {
     /// File lock type, Flock.typ
+    #[derive(Hash, Ord, PartialOrd, Eq, PartialEq, Debug, Clone)]
     pub struct LockType: u8 {
         const RDLOCK    = 0;
         const WRLOCK    = 1;
@@ -152,6 +153,7 @@ bitflags! {
 
 bitflags! {
     /// File lock flags, Flock.flags
+    #[derive(Hash, Ord, PartialOrd, Eq, PartialEq, Debug, Clone)]
     pub struct LockFlag: u32 {
         #[doc = "Blocking request"]
         const BLOCK     = 1;
@@ -162,6 +164,7 @@ bitflags! {
 
 bitflags! {
     /// File lock status
+    #[derive(Hash, Ord, PartialOrd, Eq, PartialEq, Debug, Clone)]
     pub struct LockStatus: u8 {
         const SUCCESS   = 0;
         const BLOCKED   = 1;
@@ -177,7 +180,7 @@ bitflags! {
     ///
     /// # Protocol
     /// 9P2000/9P2000.L
-    #[derive(Default)]
+    #[derive(Hash, Ord, PartialOrd, Eq, PartialEq, Debug, Clone, Default, Copy)]
     pub struct QidType: u8 {
         #[doc = "Type bit for directories"]
         const DIR       = 0x80;
@@ -227,6 +230,7 @@ bitflags! {
     ///
     /// # Protocol
     /// 9P2000.L
+    #[derive(Hash, Ord, PartialOrd, Eq, PartialEq, Debug, Clone, Copy)]
     pub struct GetattrMask: u64 {
         const MODE          = 0x00000001;
         const NLINK         = 0x00000002;
@@ -259,6 +263,7 @@ bitflags! {
     ///
     /// # Protocol
     /// 9P2000.L
+    #[derive(Hash, Ord, PartialOrd, Eq, PartialEq, Debug, Clone, Copy)]
     pub struct SetattrMask: u32 {
         const MODE      = 0x00000001;
         const UID       = 0x00000002;
