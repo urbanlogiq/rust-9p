@@ -404,7 +404,7 @@ where
     loop {
         let res = tokio::select! {
             v = listener.accept() => Some(v),
-            _ = shutdown_signal.recv() => None,
+            s = shutdown_signal.recv() => None,
         };
 
         let (stream, peer) = match res {
@@ -468,7 +468,9 @@ where
     let (proto, listen_addr) = utils::parse_proto(addr)
         .ok_or_else(|| io_err!(InvalidInput, "Invalid protocol or address"))?;
 
-    let (_, shutdown_signal) = channel(1);
+    // if the send end is unnamed (ie: `_`, then the sender is dropped, the
+    // channel is closed, and the server shuts down.
+    let (_send, shutdown_signal) = channel(1);
 
     match proto {
         "tcp" => srv_async_tcp(filesystem, &listen_addr, shutdown_signal).await,
